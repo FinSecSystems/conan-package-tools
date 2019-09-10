@@ -93,6 +93,7 @@ class ConanMultiPackager(object):
                  apple_clang_versions=None, archs=None, options=None,
                  use_docker=None, curpage=None, total_pages=None,
                  docker_image=None, reference=None, password=None,
+                 docker_image_repo=None, 
                  remotes=None,
                  upload=None, stable_branch_pattern=None,
                  vs10_x86_64_enabled=False,
@@ -213,6 +214,7 @@ class ConanMultiPackager(object):
                 self.reference = None
 
         self._docker_image = docker_image or os.getenv("CONAN_DOCKER_IMAGE", None)
+        self._docker_image_repo = docker_image_repo or os.getenv("CONAN_DOCKER_IMAGE_REPO", "conanio")
 
         # If CONAN_DOCKER_IMAGE is speified, then use docker is True
         self.use_docker = (use_docker or os.getenv("CONAN_USE_DOCKER", False) or
@@ -619,7 +621,7 @@ class ConanMultiPackager(object):
         else:
             compiler_name = build.settings.get("compiler", "")
             compiler_version = build.settings.get("compiler.version", "")
-            docker_image = self._autodetect_docker_base_image(compiler_name, compiler_version)
+            docker_image = self._autodetect_docker_base_image(compiler_name, compiler_version, self._docker_image_repo)
 
         arch = build.settings.get("arch", "") or build.settings.get("arch_build", "")
         if self.docker_32_images and arch == "x86":
@@ -635,7 +637,7 @@ class ConanMultiPackager(object):
         return docker_image
 
     @staticmethod
-    def _autodetect_docker_base_image(compiler_name, compiler_version):
+    def _autodetect_docker_base_image(compiler_name, compiler_version, docker_image_repo):
         if compiler_name not in ["clang", "gcc"]:
             raise Exception("Docker image cannot be autodetected for "
                             "the compiler %s" % compiler_name)
@@ -643,7 +645,7 @@ class ConanMultiPackager(object):
         if compiler_name == "gcc" and Version(compiler_version) > Version("5"):
             compiler_version = Version(compiler_version).major(fill=False)
 
-        return "conanio/%s%s" % (compiler_name, compiler_version.replace(".", ""))
+        return "%s/%s%s" % (docker_image_repo, compiler_name, compiler_version.replace(".", ""))
 
     def _get_channel(self, specified_channel, stable_channel, upload_when_tag):
         if self.stable_branch_pattern:
