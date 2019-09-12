@@ -192,9 +192,8 @@ class DockerCreateRunner(object):
         commands = []
         # Hack for testing when retrieving cpt from artifactory repo
         if "conan-package-tools" not in self._conan_pip_package:
-            commands.append("%s pip install conan_package_tools==%s "
-                            "--upgrade --no-cache" % (self._sudo_pip_command,
-                                                      package_tools_version))
+            commands.append("%s pip install conan_package_tools "
+                            "--upgrade --no-cache" % (self._sudo_pip_command))
 
         if self._conan_pip_package:
             commands.append("%s pip install %s --no-cache" % (self._sudo_pip_command,
