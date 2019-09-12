@@ -1,5 +1,5 @@
 
-__version__ = '0.29.1'
+__version__ = '0.29.1.1'
 NEWEST_CONAN_SUPPORTED = "1.19.0-dev"
 
 
