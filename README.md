@@ -1271,6 +1271,7 @@ This is especially useful for CI integration.
 - **CONAN_FORCE_SELINUX**: Force docker to relabel file objects on the shared volumes
 - **CONAN_SKIP_RECIPE_EXPORT**: If defined, the package recipe will only be exported on the first build.
 - **CPT_UPDATE_DEPENDENCIES**: Update all dependencies before building e.g conan create -u
+- **CONAN_DOCKER_IMAGE_REPO**: If defined and docker is being used, it will use the default images in the new repo, e.g. "another_docker_repo/gcc63"
 
 
 # Full example
