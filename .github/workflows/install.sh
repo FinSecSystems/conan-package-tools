@@ -18,8 +18,8 @@ if [[ "$(uname -s)" == 'Darwin' ]]; then
             pyenv virtualenv 2.7.16 conan
             ;;
         py37)
-            pyenv install 3.7.1
-            pyenv virtualenv 3.7.1 conan
+            pyenv install 3.7.13
+            pyenv virtualenv 3.7.13 conan
             ;;
 
     esac
@@ -32,5 +32,6 @@ else
     sudo apt-get install -y --no-install-recommends gcc-multilib g++-multilib selinux-basics
 fi
 
+pip install -U pip
 pip install -r cpt/requirements.txt
 pip install -r cpt/requirements_test.txt

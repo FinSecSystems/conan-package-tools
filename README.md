@@ -1,9 +1,49 @@
-[![Build Status Travis](https://travis-ci.org/conan-io/conan-package-tools.svg?branch=master)](https://travis-ci.org/conan-io/conan-package-tools)
-[![Build status Appveyor](https://ci.appveyor.com/api/projects/status/github/conan-io/conan-package-tools?svg=true)](https://ci.appveyor.com/project/ConanCIintegration/conan-package-tools)
+[![.github/workflows/conan_package_tools.yml](https://github.com/conan-io/conan-package-tools/actions/workflows/conan_package_tools.yml/badge.svg)](https://github.com/conan-io/conan-package-tools/actions/workflows/conan_package_tools.yml)
 [![codecov](https://codecov.io/gh/conan-io/conan-package-tools/branch/master/graph/badge.svg)](https://codecov.io/gh/conan-io/conan-package-tools)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/conan-package-tools.svg?style=plastic)
 
 # Conan Package Tools
+
+- [Conan Package Tools](#conan-package-tools)
+  - [Introduction](#introduction)
+  - [Installation](#installation)
+  - [How it works](#how-it-works)
+    - [Basic, but not very practical, example](#basic-but-not-very-practical-example)
+  - [Generating the build configurations automatically](#generating-the-build-configurations-automatically)
+  - [Filtering or modifying the configurations](#filtering-or-modifying-the-configurations)
+  - [Package Version based on Commit Checksum](#package-version-based-on-commit-checksum)
+  - [Save created packages summary](#save-created-packages-summary)
+  - [Using all values for custom options](#using-all-values-for-custom-options)
+  - [Using Docker](#using-docker)
+    - [Running scripts and executing commands before to build on Docker](#running-scripts-and-executing-commands-before-to-build-on-docker)
+    - [Using with your own Docker images](#using-with-your-own-docker-images)
+    - [Installing extra python packages before to build](#installing-extra-python-packages-before-to-build)
+    - [Passing additional Docker parameters during build](#passing-additional-docker-parameters-during-build)
+    - [Installing custom Conan config](#installing-custom-conan-config)
+  - [Specifying a different base profile](#specifying-a-different-base-profile)
+  - [Specifying build context for cross building](#specifying-build-context-for-cross-building)
+- [The CI integration](#the-ci-integration)
+  - [Travis integration](#travis-integration)
+  - [Appveyor integration](#appveyor-integration)
+  - [Bamboo CI integration](#bamboo-ci-integration)
+  - [Jenkins CI integration](#jenkins-ci-integration)
+  - [GitLab CI integration](#gitlab-ci-integration)
+  - [Upload packages](#upload-packages)
+  - [Upload dependencies (#237)](#upload-dependencies-237)
+  - [Pagination](#pagination)
+    - [Sequencial distribution](#sequencial-distribution)
+    - [Named pages](#named-pages)
+    - [Generating multiple references for the same recipe](#generating-multiple-references-for-the-same-recipe)
+  - [Working with Bintray: Configuring repositories](#working-with-bintray-configuring-repositories)
+  - [Visual Studio auto-configuration](#visual-studio-auto-configuration)
+  - [MinGW builds](#mingw-builds)
+  - [Clang builds](#clang-builds)
+- [FULL REFERENCE](#full-reference)
+  - [ConanMultiPackager parameters reference](#conanmultipackager-parameters-reference)
+  - [Commit messages reference](#commit-messages-reference)
+  - [Complete ConanMultiPackager methods reference:](#complete-conanmultipackager-methods-reference)
+  - [Environment configuration](#environment-configuration)
+- [Full example](#full-example)
 
 
 ## Introduction
@@ -222,6 +262,9 @@ You can adjust other constructor parameters to control the build configurations 
 - **visual_versions**: Generate only build configurations for the specified Visual Studio versions (Ignore if the current machine is not Windows)
 - **visual_runtimes**: Generate only build configurations for the specified runtimes. (only for Visual Studio)
 - **visual_toolsets**: Specify the toolsets per each specified Visual Studio version. (only for Visual Studio)
+- **msvc_versions**: Generate only build configurations for the specified msvc versions (Ignore if the current machine is not Windows)
+- **msvc_runtimes**: Generate only build configurations for the specified runtimes. (only for msvc)
+- **msvc_runtime_types**: Specify the runtime types per each specified msvc version. (only for msvc)
 - **apple_clang_versions**: Generate only build configurations for the specified apple clang versions (Ignored if the current machine is not OSX)
 - **archs**: Generate build configurations for the specified architectures, by default, ["x86", "x86_64"].
 - **build_types**: Generate build configurations for the specified build_types, by default ["Debug", "Release"].
@@ -232,6 +275,9 @@ Or you can adjust environment variables:
 - **CONAN_VISUAL_VERSIONS**
 - **CONAN_VISUAL_RUNTIMES**
 - **CONAN_VISUAL_TOOLSETS**
+- **CONAN_MSVC_VERSIONS**
+- **CONAN_MSVC_RUNTIMES**
+- **CONAN_MSVC_RUNTIME_TYPES**
 - **CONAN_APPLE_CLANG_VERSIONS**
 - **CONAN_CLANG_VERSIONS**
 - **CONAN_ARCHS**
@@ -524,6 +570,31 @@ Alternatively you can use the `CONAN_BASE_PROFILE` environment variable to choos
 
     CONAN_BASE_PROFILE=myclang
 
+## Specifying build context for cross building
+
+Since Conan 1.24, you can pass an additional profile for build context, so that, you can pass both profiles by
+environment variables:
+
+
+```python
+from cpt.packager import ConanMultiPackager
+
+if __name__ == "__main__":
+    builder = ConanMultiPackager(gcc_versions=["10", "11"])
+    builder.add_common_builds()
+    builder.run(base_profile_name="raspberrypi", base_profile_build_name="default")
+```
+
+The `base_profile_name` is equivalent to profile host, where my libraries and executables will run, and the
+`base_profile_build_name` is the profile related where the artifacts are built.
+
+Also, you can use environment variables instead:
+
+    CONAN_BASE_PROFILE=default
+    CONAN_BASE_PROFILE_BUILD=raspberrypi
+
+Read more build context [here](https://docs.conan.io/en/latest/systems_cross_building/cross_building.html#conan-v1-24-and-newer)
+
 # The CI integration
 
 If you are going to use a CI server to generate different binary packages for your recipe, the best approach is to control
@@ -725,21 +796,20 @@ You can also use multiples "pages" to split the builds in different jobs (Check 
             eval "$(pyenv init -)"
         fi
 
-        pyenv install 2.7.10
-        pyenv virtualenv 2.7.10 conan
+        pyenv install 3.7.11
+        pyenv virtualenv 3.7.11 conan
         pyenv rehash
         pyenv activate conan
     fi
 
     pip install conan --upgrade
-    pip install conan_package_tools==0.3.7dev12
-
+    pip install conan_package_tools
     conan user
 
 
 If you want to "pin" a **conan_package_tools** version use:
 
-    pip install conan_package_tools==0.3.2
+    pip install conan_package_tools==0.37.0
 
 That version will be used also in the docker images.
 
@@ -772,8 +842,8 @@ This is very similar to Travis CI. With the same **build.py** script we have the
     build: false
 
     environment:
-        PYTHON: "C:\\Python27"
-        PYTHON_VERSION: "2.7.8"
+        PYTHON: "C:\\Python37"
+        PYTHON_VERSION: "3.7.9"
         PYTHON_ARCH: "32"
 
         CONAN_USERNAME: "lasote"
@@ -883,7 +953,7 @@ You can split the different build configurations in different "pages". So, you c
 
 There are two approaches:
 
-### Sequencial distribution
+### Sequential distribution
 
 By simply passing two pagination parameters, **curpage** and **total_pages** or the corresponding environment variables:
 
@@ -1100,6 +1170,7 @@ Using **CONAN_CLANG_VERSIONS** env variable in Travis ci or Appveyor:
 - **upload_only_when_tag**: Will try to upload only if the branch is a tag. Default [False]
 - **upload_only_recipe**: If defined, will try to upload **only** the recipes. The built packages will **not** be uploaded. Default [False]
 - **upload_dependencies**: Will try to upload dependencies to your remote. Default [False]
+- **upload_force**: Will try to force uploaded all packages. Default [True]
 - **build_types**: List containing specific build types. Default ["Release", "Debug"]
 - **cppstds**: List containing specific cpp standards. Default None
 - **skip_check_credentials**: Conan will skip checking the user credentials before building the packages. And if no user/remote is specified, will try to upload with the
@@ -1119,6 +1190,7 @@ Using **CONAN_CLANG_VERSIONS** env variable in Travis ci or Appveyor:
     - ["pattern\*", "another_pattern\*"]: will build only the packages with the reference matching these patterns. Equivalent to `--build pattern* --build another_pattern*`
     - ["pattern\*", "outdated"]:  `--build pattern* --build outdated`
 Check [Conan Build policies](https://docs.conan.io/en/latest/mastering/policies.html) for more details.
+- **require_overrides** List containing overrides requirement to the consumer conanfile. e.j ["foo/0.1@user/channel", "bar/1.2@bar/channel"]
 - **test_folder**: Custom test folder consumed by Conan create, e.j .conan/test_package
 - **lockfile**: Custom conan lockfile to be used, e.j. conan.lock. Default [None]
 - **conanfile**: Custom conanfile consumed by Conan create. e.j. conanfile.py
@@ -1208,9 +1280,9 @@ This is especially useful for CI integration.
 - **CONAN_UPLOAD**: URL of the repository where we want to use to upload the packages.
   The value can containing the URL, the SSL validation flag and remote name (last two optionals) separated by "@". e.j:
 
-  - `CONAN_UPLOAD=https://api.bintray.com/conan/conan-community/conan`
-  - `CONAN_UPLOAD=https://api.bintray.com/conan/conan-community/conan@True`
-  - `CONAN_UPLOAD=https://api.bintray.com/conan/conan-community/conan@True@other_repo_name`
+  - `CONAN_UPLOAD=https://yourcompany.jfrog.io/artifactory/api/conan/local`
+  - `CONAN_UPLOAD=https://yourcompany.jfrog.io/artifactory/api/conan/local@True`
+  - `CONAN_UPLOAD=https://yourcompany.jfrog.io/artifactory/api/conan/local@True@other_repo_name`
 
   If a remote name is not specified, `upload_repo` will be used as a remote name.
   If the SSL validation configuration is not specified, it will use `True` by default.
@@ -1220,6 +1292,7 @@ This is especially useful for CI integration.
 - **CONAN_UPLOAD_ONLY_WHEN_TAG**: If defined, will try to upload the packages only when the current branch is a tag.
 - **CONAN_UPLOAD_ONLY_RECIPE**: If defined, will try to upload **only** the recipes. The built packages will **not** be uploaded.
 - **CONAN_UPLOAD_DEPENDENCIES**: If defined, will try to upload the listed package dependencies to your remote.
+- **CONAN_UPLOAD_FORCE**: If defined, will try to force upload all packages. Default is `True`.
 
 - **CONAN_SKIP_CHECK_CREDENTIALS**: Conan will skip checking the user credentials before building the packages. And if no user/remote is specified, will try to upload with the
   already stored credentiales in the local cache. Default [False]
@@ -1237,6 +1310,9 @@ This is especially useful for CI integration.
 - **CONAN_VISUAL_VERSIONS**: Visual versions, comma separated, e.g. "12,14"
 - **CONAN_VISUAL_RUNTIMES**: Visual runtimes, comma separated, e.g. "MT,MD"
 - **CONAN_VISUAL_TOOLSETS**: Map Visual versions to toolsets, e.g. `14=v140;v140_xp,12=v120_xp`
+- **CONAN_MSVC_VERSIONS**: msvc versions, comma separated, e.g. "19.29,193"
+- **CONAN_MSVC_RUNTIMES**: msvc runtimes, comma separated, e.g. "static,dynamic"
+- **CONAN_MSVC_RUNTIME_TYPES**: msvc runtime types, comma separated, e.g. "Debug,Release"
 - **CONAN_USE_DOCKER**: If defined will use docker
 - **CONAN_CURRENT_PAGE**:  Current page of packages to create
 - **CONAN_TOTAL_PAGES**: Total number of pages
@@ -1277,9 +1353,11 @@ This is especially useful for CI integration.
     - "pattern\*,another_pattern\*": will build only the packages with the reference matching these patterns. Equivalent to `--build pattern* --build another_pattern*`
     - "pattern\*,outdated": Equivalent to `--build pattern* --build outdated`
 Check [Conan Build policies](https://docs.conan.io/en/latest/mastering/policies.html) for more details.
+- **CONAN_REQUIRE_OVERRIDES**: Comma separated list of requirement overrides.
 - **CONAN_CONFIG_URL**: Conan config URL be installed before to build e.j https://github.com/bincrafters/conan-config.git
 - **CONAN_CONFIG_ARGS**: Conan config arguments used when installing conan config
 - **CONAN_BASE_PROFILE**: Apply options, settings, etc. to this profile instead of `default`.
+- **CONAN_BASE_PROFILE_BUILD**: Apply the specified profile to the build machine. Default is None
 - **CONAN_IGNORE_SKIP_CI**: Ignore `[skip ci]` in commit message.
 - **CONAN_CONANFILE**: Custom conanfile consumed by Conan create. e.j. conanfile.py
 - **CONAN_LOCKFILE**: Custom conan lockfile to be used, e.j. conan.lock.
@@ -1287,6 +1365,7 @@ Check [Conan Build policies](https://docs.conan.io/en/latest/mastering/policies.
 - **CONAN_FORCE_SELINUX**: Force docker to relabel file objects on the shared volumes
 - **CONAN_SKIP_RECIPE_EXPORT**: If defined, the package recipe will only be exported on the first build.
 - **CPT_UPDATE_DEPENDENCIES**: Update all dependencies before building e.g conan create -u
+- **CONAN_PURE_C**: Set `pure_c` by environment variable, default `True`
 - **CONAN_DOCKER_IMAGE_REPO**: If defined and docker is being used, it will use the default images in the new repo, e.g. "another_docker_repo/gcc63"
 
 

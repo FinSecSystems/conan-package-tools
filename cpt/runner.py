@@ -1,6 +1,8 @@
 import os
 import sys
 import subprocess
+import re
+import time
 from collections import namedtuple
 
 from conans import tools
@@ -11,16 +13,17 @@ from cpt import __version__ as package_tools_version, get_client_version
 from cpt.config import ConfigManager
 from cpt.printer import Printer
 from cpt.profiles import load_profile, patch_default_base_profile
+from conans.client.conan_api import ProfileData
 
 
 class CreateRunner(object):
 
     def __init__(self, profile_abs_path, reference, conan_api, uploader,
-                 exclude_vcvars_precommand=False, build_policy=None, runner=None,
+                 exclude_vcvars_precommand=False, build_policy=None, require_overrides=None, runner=None,
                  cwd=None, printer=None, upload=False, upload_only_recipe=None,
                  test_folder=None, config_url=None, config_args=None,
                  upload_dependencies=None, conanfile=None, skip_recipe_export=False,
-                 update_dependencies=False, lockfile=None):
+                 update_dependencies=False, lockfile=None, profile_build_abs_path=None):
 
         self.printer = printer or Printer()
         self._cwd = cwd or os.getcwd()
@@ -30,7 +33,12 @@ class CreateRunner(object):
         self._profile_abs_path = profile_abs_path
         self._reference = reference
         self._exclude_vcvars_precommand = exclude_vcvars_precommand
-        self._build_policy = build_policy
+        self._build_policy = build_policy.split(",") if \
+                             isinstance(build_policy, str) else \
+                             build_policy
+        self._require_overrides = require_overrides.split(",") if \
+                             isinstance(require_overrides, str) else \
+                             require_overrides
         self._runner = PrintRunner(runner or os.system, self.printer)
         self._test_folder = test_folder
         self._config_url = config_url
@@ -45,6 +53,7 @@ class CreateRunner(object):
         self.skip_recipe_export = skip_recipe_export
         self._update_dependencies = update_dependencies
         self._results = None
+        self._profile_build_abs_path = profile_build_abs_path
 
         patch_default_base_profile(conan_api, profile_abs_path)
         client_version = get_client_version()
@@ -59,6 +68,9 @@ class CreateRunner(object):
             cache = conan_api.app.cache
 
         self._profile = load_profile(profile_abs_path, cache)
+
+        if isinstance(self._test_folder, str) and self._test_folder.lower() == "false":
+            self._test_folder = False
 
     @property
     def settings(self):
@@ -87,6 +99,9 @@ class CreateRunner(object):
             self.printer.print_rule()
             self.printer.print_profile(tools.load(self._profile_abs_path))
 
+            if self._profile_build_abs_path is not None:
+                self.printer.print_profile(tools.load(self._profile_build_abs_path))
+
             with self.printer.foldable_output("conan_create"):
                 if client_version < Version("1.10.0"):
                     name, version, user, channel = self._reference
@@ -99,7 +114,9 @@ class CreateRunner(object):
                 with tools.environment_append({"_CONAN_CREATE_COMMAND_": "1"}):
                     params = {"name": name, "version": version, "user": user,
                               "channel": channel, "build_modes": self._build_policy,
-                              "profile_name": self._profile_abs_path}
+                              "require_overrides": self._require_overrides,
+                              "profile_name": self._profile_abs_path,
+                              "profile_build_name": self._profile_build_abs_path}
                     self.printer.print_message("Calling 'conan create'")
                     self.printer.print_dict(params)
                     with tools.chdir(self._cwd):
@@ -114,19 +131,32 @@ class CreateRunner(object):
                                 self._results = self._conan_api.create(self._conanfile, name=name, version=version,
                                                         user=user, channel=channel,
                                                         build_modes=self._build_policy,
+                                                        require_overrides=self._require_overrides,
                                                         profile_name=self._profile_abs_path,
                                                         test_folder=self._test_folder,
                                                         not_export=self.skip_recipe_export,
                                                         update=self._update_dependencies)
                             else:
+                                if self._profile_build_abs_path is not None:
+                                    if client_version < Version("1.38.0"):
+                                        profile_build = ProfileData(profiles=[self._profile_build_abs_path], settings=None,
+                                                                    options=None, env=None)
+                                    else:
+                                        profile_build = ProfileData(profiles=[self._profile_build_abs_path], settings=None,
+                                                                    options=None, env=None, conf=None)
+                                else:
+                                    profile_build = None
+
                                 self._results = self._conan_api.create(self._conanfile, name=name, version=version,
                                                         user=user, channel=channel,
                                                         build_modes=self._build_policy,
+                                                        require_overrides=self._require_overrides,
                                                         profile_names=[self._profile_abs_path],
                                                         test_folder=self._test_folder,
                                                         not_export=self.skip_recipe_export,
                                                         update=self._update_dependencies,
-                                                        lockfile=self._lockfile)
+                                                        lockfile=self._lockfile,
+                                                        profile_build=profile_build)
                         except exc_class as e:
                             self.printer.print_rule()
                             self.printer.print_message("Skipped configuration by the recipe: "
@@ -138,8 +168,8 @@ class CreateRunner(object):
                             if client_version >= Version("1.10.0"):
                                 reference = ConanFileReference.loads(reference)
                                 reference = str(reference.copy_clear_rev())
-                            if ((reference == str(self._reference)) or \
-                               (reference in self._upload_dependencies) or \
+                            if ((reference == str(self._reference)) or
+                               (reference in self._upload_dependencies) or
                                ("all" in self._upload_dependencies)) and \
                                installed['packages']:
                                 package_id = installed['packages'][0]['id']
@@ -160,10 +190,11 @@ class DockerCreateRunner(object):
     def __init__(self, profile_text, base_profile_text, base_profile_name, reference,
                  conan_pip_package=None, docker_image=None, sudo_docker_command=None,
                  sudo_pip_command=False,
-                 docker_image_skip_update=False, build_policy=None,
+                 docker_image_skip_update=False, build_policy=None, require_overrides=None,
                  docker_image_skip_pull=False,
                  always_update_conan_in_docker=False,
                  upload=False, upload_retry=None, upload_only_recipe=None,
+                 upload_force=None,
                  runner=None,
                  docker_shell="", docker_conan_home="",
                  docker_platform_param="", docker_run_options="",
@@ -179,15 +210,20 @@ class DockerCreateRunner(object):
                  force_selinux=None,
                  skip_recipe_export=False,
                  update_dependencies=False,
-                 lockfile=None):
+                 lockfile=None,
+                 profile_build_text=None,
+                 base_profile_build_text=None,
+                 cwd=None):
 
         self.printer = printer or Printer()
         self._upload = upload
         self._upload_retry = upload_retry
         self._upload_only_recipe = upload_only_recipe
+        self._upload_force = upload_force
         self._reference = reference
         self._conan_pip_package = conan_pip_package
         self._build_policy = build_policy
+        self._require_overrides = require_overrides
         self._docker_image = docker_image
         self._always_update_conan_in_docker = always_update_conan_in_docker
         self._docker_image_skip_update = docker_image_skip_update
@@ -214,13 +250,18 @@ class DockerCreateRunner(object):
         self._force_selinux = force_selinux
         self._skip_recipe_export = skip_recipe_export
         self._update_dependencies = update_dependencies
+        self._profile_build_text = profile_build_text
+        self._base_profile_build_text = base_profile_build_text
+        self._cwd = cwd or os.getcwd()
 
     def _pip_update_conan_command(self):
         commands = []
         # Hack for testing when retrieving cpt from artifactory repo
         if "conan-package-tools" not in self._conan_pip_package:
-            commands.append("%s pip install conan_package_tools "
-                            "--upgrade --no-cache" % (self._sudo_pip_command))
+            commands.append("%s %s install conan_package_tools==%s "
+                            "--upgrade --no-cache" % (self._sudo_pip_command,
+                                                      self._docker_pip_command,
+                                                      package_tools_version))
 
         if self._conan_pip_package:
             commands.append("%s %s install %s --no-cache" % (self._sudo_pip_command,
@@ -291,7 +332,7 @@ class DockerCreateRunner(object):
         command = ('%s docker run --rm -v "%s:%s/project%s" %s %s %s %s %s '
                    '"%s cd project && '
                    '%s run_create_in_docker "' % (self._sudo_docker_command,
-                                                  os.getcwd(),
+                                                  self._cwd,
                                                   self._docker_conan_home,
                                                   volume_options,
                                                   env_vars_text,
@@ -315,9 +356,15 @@ class DockerCreateRunner(object):
 
     def pull_image(self):
         with self.printer.foldable_output("docker pull"):
-            ret = self._runner("%s docker pull %s" % (self._sudo_docker_command, self._docker_image))
-            if ret != 0:
-                raise Exception("Error pulling the image: %s" % self._docker_image)
+            for retry in range(1, 4):
+                ret = self._runner("%s docker pull %s" % (self._sudo_docker_command, self._docker_image))
+                if ret == 0:
+                    break
+                elif retry == 3:
+                    raise Exception("Error pulling the image: %s" % self._docker_image)
+                self.printer.print_message("Could not pull docker image '{}'. Retry ({})"
+                                           .format(self._docker_image, retry))
+                time.sleep(3)
 
     def get_env_vars(self):
         ret = {key: value for key, value in os.environ.items() if key.startswith("CONAN_") and
@@ -327,13 +374,16 @@ class DockerCreateRunner(object):
         ret["CPT_PROFILE"] = escape_env(self._profile_text)
         ret["CPT_BASE_PROFILE"] = escape_env(self._base_profile_text)
         ret["CPT_BASE_PROFILE_NAME"] = escape_env(self._base_profile_name)
+        ret["CPT_PROFILE_BUILD"] = escape_env(self._profile_build_text)
 
-        ret["CONAN_USERNAME"] = escape_env(self._reference.user)
+        ret["CONAN_USERNAME"] = escape_env(self._reference.user or ret.get("CONAN_USERNAME"))
         ret["CONAN_TEMP_TEST_FOLDER"] = "1"  # test package folder to a temp one
         ret["CPT_UPLOAD_ENABLED"] = self._upload
         ret["CPT_UPLOAD_RETRY"] = self._upload_retry
         ret["CPT_UPLOAD_ONLY_RECIPE"] = self._upload_only_recipe
-        ret["CPT_BUILD_POLICY"] = escape_env(",".join(self._build_policy)) if self._build_policy else escape_env(self._build_policy)
+        ret["CPT_UPLOAD_FORCE"] = self._upload_force
+        ret["CPT_BUILD_POLICY"] = escape_env(self._build_policy)
+        ret["CPT_REQUIRE_OVERRIDES"] = escape_env(self._require_overrides)
         ret["CPT_TEST_FOLDER"] = escape_env(self._test_folder)
         ret["CPT_CONFIG_URL"] = escape_env(self._config_url)
         ret["CPT_CONFIG_ARGS"] = escape_env(self._config_args)
@@ -357,7 +407,7 @@ def unscape_env(text):
 def escape_env(text):
     if not text:
         return text
-    return text.replace("\n", "@@").replace('"', '||')
+    return text.replace("\r", "").replace("\n", "@@").replace('"', '||')
 
 
 class PrintRunner(object):
@@ -366,8 +416,12 @@ class PrintRunner(object):
         self.runner = runner
         self.printer = printer
 
-    def __call__(self, command):
-        self.printer.print_command(command)
+    def __call__(self, command, hide_sensitive=True):
+        cmd_str = command
+        if hide_sensitive:
+            cmd_str = re.sub(r'(CONAN_LOGIN_USERNAME[_\w+]*)=\"(\w+)\"', r'\1="xxxxxxxx"', cmd_str)
+            cmd_str = re.sub(r'(CONAN_PASSWORD[_\w+]*)=\"(\w+)\"', r'\1="xxxxxxxx"', cmd_str)
+        self.printer.print_command(cmd_str)
         sys.stderr.flush()
         sys.stdout.flush()
         return self.runner(command)
