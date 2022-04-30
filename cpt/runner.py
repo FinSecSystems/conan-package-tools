@@ -3,6 +3,7 @@ import sys
 import subprocess
 import re
 import time
+import socket
 from collections import namedtuple
 
 from conans import tools
@@ -302,7 +303,7 @@ class DockerCreateRunner(object):
                         command = '%s docker run %s --name conan_runner_%s ' \
                                   ' %s %s %s "%s"' % (self._sudo_docker_command,
                                                    env_vars_text,
-                                                   self._docker_image,
+                                                   socket.gethostname(),
                                                    self._docker_run_options,
                                                    self._docker_image,
                                                    self._docker_shell,
@@ -314,14 +315,14 @@ class DockerCreateRunner(object):
                         # Save the image with the updated installed
                         # packages and remove the intermediate container
                         command = "%s docker commit conan_runner_%s %s" % (self._sudo_docker_command,
-                                                                        self._docker_image,
+                                                                        socket.gethostname(),
                                                                         self._docker_image)
                         ret = self._runner(command)
                         if ret != 0:
                             raise Exception("Error commiting the image: %s" % command)
                     finally:
                         command = "%s docker rm conan_runner_%s" % (self._sudo_docker_command,
-                                                                        self._docker_image)
+                                                                        socket.gethostname())
                         ret = self._runner(command)
                         if ret != 0:
                             raise Exception("Error removing the temp container: %s" % command)
